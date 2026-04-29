@@ -1,76 +1,47 @@
 const mongoose = require('mongoose');
 
 const timelineSchema = new mongoose.Schema({
-  status: { type: String, enum: ['Reported', 'In Progress', 'Resolved', 'Pending Verification', 'Verified'], required: true },
+  status: { type: String, required: true },
   timestamp: { type: Date, default: Date.now },
   note: { type: String, default: '' }
 });
 
 const voteSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  type: { type: String, enum: ['fixed', 'notFixed'], required: true },
+  type: { type: String, enum: ['fixed', 'notFixed'] },
   timestamp: { type: Date, default: Date.now }
 });
 
 const issueSchema = new mongoose.Schema({
   issueTitle: { type: String, required: true },
   category: { type: String, enum: ['Roads', 'Sanitation', 'Water', 'Electricity', 'Other'], required: true },
-  ward: { type: String, required: true },
-  location: {
-    lat: { type: Number, default: 0 },
-    lng: { type: Number, default: 0 },
-    address: { type: String, default: '' }
-  },
-  priority: { type: String, enum: ['High', 'Medium', 'Low'], default: 'Low' },
-  status: { type: String, enum: ['Open', 'In Progress', 'Resolved', 'Pending Verification', 'Verified', 'Rejected'], default: 'Open' },
+  ward: { type: String, required: true, index: true },
+  location: { lat: { type: Number, default: 0 }, lng: { type: Number, default: 0 }, address: { type: String, default: '' } },
+  priority: { type: String, enum: ['High', 'Medium', 'Low'], default: 'Low', index: true },
+  status: { type: String, enum: ['Pending', 'In Progress', 'Resolved', 'Verified', 'Rejected'], default: 'Pending', index: true },
   complaintCount: { type: Number, default: 1 },
   initialComplaintCount: { type: Number, default: 1 },
   complaintIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Complaint' }],
   assignedDepartment: { type: String, required: true },
-  
-  // Public Intelligence Fields
-  locationDetails: {
-    lat: { type: Number },
-    lng: { type: Number },
-    ward: { type: String },
-    area: { type: String },
-    landmark: { type: String }
-  },
-  
-  votes: {
-    affected: { type: Number, default: 0 },
-    fixed: { type: Number, default: 0 },
-    notFixed: { type: Number, default: 0 }
-  },
-  
+  assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   timeline: [timelineSchema],
-  
   slaDeadline: { type: Date, default: () => new Date(+new Date() + 48*60*60*1000) },
   isOverdue: { type: Boolean, default: false },
-  
-  affectedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  
-  resolutionDetails: {
-    beforeImage: { type: String, default: null },
-    afterImage: { type: String, default: null },
-    resolutionNote: { type: String, default: null },
-    resolvedAt: { type: Date, default: null },
-    verifiedAt: { type: Date, default: null }
-  },
-  
+  votes: { affected: { type: Number, default: 0 }, fixed: { type: Number, default: 0 }, notFixed: { type: Number, default: 0 } },
+  images: [{ type: { type: String }, url: { type: String }, date: { type: Date, default: Date.now } }],
+  description: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  resolvedAt: { type: Date, default: null },
   impactMetrics: {
     reduction: { type: Number, default: 0 },
     improvementPercentage: { type: Number, default: 0 },
     peakComplaintCount: { type: Number, default: 1 },
     resolutionTime: { type: Number, default: 0 },
     communityTrustScore: { type: Number, default: 0 }
-  },
-  
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  }
 });
 
-// Auto-add timeline when status changes
 issueSchema.pre('save', function(next) {
   if (this.isModified('status')) {
     const lastTimeline = this.timeline[this.timeline.length - 1];
@@ -78,12 +49,9 @@ issueSchema.pre('save', function(next) {
       this.timeline.push({ status: this.status, timestamp: new Date() });
     }
   }
-  
-  // Check overdue
-  if (this.slaDeadline && new Date() > this.slaDeadline && this.status !== 'Resolved' && this.status !== 'Verified') {
+  if (this.slaDeadline && new Date() > this.slaDeadline && !['Resolved', 'Verified'].includes(this.status)) {
     this.isOverdue = true;
   }
-  
   this.updatedAt = new Date();
   next();
 });

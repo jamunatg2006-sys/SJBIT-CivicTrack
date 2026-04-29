@@ -3,66 +3,74 @@ const Complaint = require('../models/Complaint');
 const Issue = require('../models/Issue');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
-const { detectDuplicate } = require('../services/aiDuplicateDetector'); // Imported your new service
 
-// ============== CHECK DUPLICATE API (AI POWERED) ==============
+// Simple similarity function
+const calculateSimilarity = (text1, text2) => {
+  if (!text1 || !text2) return 0;
+  const words1 = text1.toLowerCase().split(/\s+/);
+  const words2 = text2.toLowerCase().split(/\s+/);
+  const commonWords = words1.filter(word => words2.includes(word));
+  return commonWords.length / Math.max(words1.length, words2.length);
+};
+
+// Find duplicate issues
+const findDuplicateIssue = async (title, description, category, ward) => {
+  try {
+    const existingIssues = await Issue.find({ 
+      category, 
+      ward,
+      status: { $nin: ['Resolved', 'Verified', 'Rejected'] }
+    });
+    
+    for (const issue of existingIssues) {
+      const complaints = await Complaint.find({ _id: { $in: issue.complaintIds } });
+      
+      for (const complaint of complaints) {
+        const titleSimilarity = calculateSimilarity(title, complaint.title);
+        const descSimilarity = calculateSimilarity(description, complaint.description);
+        
+        if (titleSimilarity > 0.4 || descSimilarity > 0.3) {
+          return {
+            isDuplicate: true,
+            existingIssue: {
+              id: issue._id,
+              title: issue.issueTitle,
+              complaintCount: issue.complaintCount,
+              upvotes: issue.votes?.affected || 0,
+              priority: issue.priority,
+              category: issue.category,
+              ward: issue.ward,
+              status: issue.status
+            },
+            similarity: Math.max(titleSimilarity, descSimilarity)
+          };
+        }
+      }
+    }
+    return { isDuplicate: false };
+  } catch (err) {
+    console.error('Error finding duplicate:', err);
+    return { isDuplicate: false };
+  }
+};
+
+// ============== CHECK DUPLICATE API ==============
 router.post('/check-duplicate', async (req, res) => {
   try {
     const { title, description, category, ward } = req.body;
-
-    // 1. Fetch existing issues in the same ward and category
-    // This reduces the data sent to AI for better accuracy and speed
-    const existingIssues = await Issue.find({
-      category,
-      ward,
-      status: { $nin: ['Resolved', 'Verified', 'Rejected'] }
-    }).limit(10); // Limit to most recent 10 to stay within free tier limits
-
-    if (existingIssues.length === 0) {
-      return res.json({ isDuplicate: false });
-    }
-
-    // 2. Format the data for the AI service
-    // We map issues to a simpler format so the AI understands them easily
-    const formattedExisting = existingIssues.map(issue => ({
-      id: issue._id,
-      title: issue.issueTitle,
-      description: issue.description || "No description provided",
-      category: issue.category,
-      ward: issue.ward
-    }));
-
-    // 3. Call your new Free AI Service (Groq/Llama)
-    const aiResult = await detectDuplicate(
-      { title, description, category, ward },
-      formattedExisting
-    );
-
-    if (aiResult.isDuplicate && aiResult.confidence >= 0.7) {
-      // Find the original issue object to return full details to the frontend
-      const matchedIssue = existingIssues[aiResult.matchedIndex];
-
+    const duplicate = await findDuplicateIssue(title, description, category, ward);
+    
+    if (duplicate.isDuplicate) {
       return res.json({
         isDuplicate: true,
-        existingIssue: {
-          id: matchedIssue._id,
-          title: matchedIssue.issueTitle,
-          complaintCount: matchedIssue.complaintCount,
-          upvotes: matchedIssue.votes?.affected || 0,
-          priority: matchedIssue.priority,
-          category: matchedIssue.category,
-          ward: matchedIssue.ward,
-          status: matchedIssue.status
-        },
-        similarity: aiResult.confidence,
-        reason: aiResult.reason // Now you can show the user WHY it's a duplicate
+        existingIssue: duplicate.existingIssue,
+        similarity: duplicate.similarity
       });
     }
-
     res.json({ isDuplicate: false });
   } catch (err) {
-    console.error('AI Check Error:', err);
-    res.status(500).json({ message: 'Server error during duplicate check' });
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -73,18 +81,17 @@ router.post('/:id/upvote', auth, async (req, res) => {
     if (!issue) {
       return res.status(404).json({ message: 'Issue not found' });
     }
-
+    
     issue.votes.affected = (issue.votes.affected || 0) + 1;
     issue.complaintCount = (issue.complaintCount || 0) + 1;
-
-    // Dynamic priority adjustment based on volume
+    
     if (issue.complaintCount >= 10) issue.priority = 'High';
     else if (issue.complaintCount >= 5) issue.priority = 'Medium';
     else issue.priority = 'Low';
-
+    
     await issue.save();
     await User.findByIdAndUpdate(req.user.id, { $inc: { points: 5 } });
-
+    
     res.json({
       success: true,
       message: 'Thank you for upvoting!',

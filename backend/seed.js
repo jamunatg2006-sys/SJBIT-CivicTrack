@@ -112,7 +112,7 @@ async function seedDatabase() {
     console.log('🌱 Starting database seeding...');
     
     // Connect to MongoDB
-    await mongoose.connect('mongodb://localhost:27017/civictrack');
+    await mongoose.connect('mongodb+srv://jamunatg2006_db_user:MFc7eEr1hxTBgFmy@cluster0.ak2jriw.mongodb.net/');
     console.log('✅ Connected to MongoDB');
     
     // Clear existing data

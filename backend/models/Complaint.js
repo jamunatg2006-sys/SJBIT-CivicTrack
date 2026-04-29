@@ -3,23 +3,10 @@ const mongoose = require('mongoose');
 const complaintSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, required: true },
-  category: {
-    type: String,
-    enum: ['Roads', 'Sanitation', 'Water', 'Electricity', 'Other'],
-    required: true
-  },
-  location: {
-    address: String,
-    ward: { type: String, required: true },
-    lat: Number,
-    lng: Number
-  },
+  category: { type: String, enum: ['Roads', 'Sanitation', 'Water', 'Electricity', 'Other'], required: true },
+  location: { address: String, ward: { type: String, required: true }, lat: Number, lng: Number },
   imageUrl: { type: String, default: null },
-  status: {
-    type: String,
-    enum: ['pending', 'in-progress', 'resolved', 'rejected'],
-    default: 'pending'
-  },
+  status: { type: String, enum: ['pending', 'in-progress', 'resolved', 'rejected'], default: 'pending' },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   issueId: { type: mongoose.Schema.Types.ObjectId, ref: 'Issue', default: null },
   upvotes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
@@ -27,8 +14,5 @@ const complaintSchema = new mongoose.Schema({
   severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
   createdAt: { type: Date, default: Date.now }
 });
-
-// Text index for keyword search
-complaintSchema.index({ title: 'text', description: 'text' });
 
 module.exports = mongoose.model('Complaint', complaintSchema);
